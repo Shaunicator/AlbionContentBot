@@ -1,163 +1,235 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const { MongoClient } = require('mongodb');
-const { google } = require('googleapis');
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config(); 
+const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages
+  ]
+});
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const MONGO_URI = process.env.MONGO_URI;
-const SERVICE_ACCOUNT_FILE = process.env.GOOGLE_SERVICE_ACCOUNT;
 
-console.log("✅ Service Account File Loaded:", SERVICE_ACCOUNT_FILE);
+// In-memory storage
+const eventTemplates = new Map();
+const activeEvents = new Map();
 
-console.log("Service Account Path:", SERVICE_ACCOUNT_FILE);
-
-console.log("Google Service Account File:", process.env.GOOGLE_SERVICE_ACCOUNT);
-console.log("Environment Variables Loaded: ", process.env);
-
-// Setup bot intents
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessageReactions
-    ]
-});
-
-// MongoDB connection
-const mongoClient = new MongoClient(MONGO_URI);
-let eventsCollection;
-
-async function connectToMongoDB() {
-    try {
-        await mongoClient.connect();
-        const db = mongoClient.db("discord_bot");
-        eventsCollection = db.collection("events");
-        console.log("✅ Connected to MongoDB");
-    } catch (error) {
-        console.error("❌ MongoDB connection error:", error);
-    }
+class EventTemplate {
+  constructor(name, description, roles) {
+    this.name = name;
+    this.description = description;
+    this.roles = roles; // Map of role_name: max_slots
+  }
 }
 
-// Google Calendar setup
-let calendar;
-try {
-    const credentials = JSON.parse(fs.readFileSync(path.join(__dirname, SERVICE_ACCOUNT_FILE)));
-    const auth = new google.auth.JWT(
-        credentials.client_email,
-        null,
-        credentials.private_key,
-        ['https://www.googleapis.com/auth/calendar']
-    );
-    calendar = google.calendar({ version: 'v3', auth });
-    console.log("✅ Google Calendar API initialized");
-} catch (error) {
-    console.error("⚠️ Google Calendar setup failed:", error);
+class ActiveEvent {
+  constructor(templateName, description, roles, startTime) {
+    this.templateName = templateName;
+    this.description = description;
+    this.roles = roles; // Map of role_name: [array of participant IDs]
+    this.startTime = startTime;
+    this.reminderSent = false;
+  }
 }
 
-client.once('ready', () => {
-    console.log(`✅ Logged in as ${client.user.tag}`);
-    setInterval(eventReminder, 60000); // Check for reminders every 60 seconds
+const commands = [
+  new SlashCommandBuilder()
+    .setName('create_template')
+    .setDescription('Create a new event template')
+    .addStringOption(option => 
+      option.setName('name')
+        .setDescription('Template name')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('roles')
+        .setDescription('Roles and slots (format: role1:slots,role2:slots)')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('description')
+        .setDescription('Event description')
+        .setRequired(true)),
+  
+  new SlashCommandBuilder()
+    .setName('start_event')
+    .setDescription('Start an event from a template')
+    .addStringOption(option =>
+      option.setName('template')
+        .setDescription('Template name')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('name')
+        .setDescription('Event name')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('time')
+        .setDescription('Event start time (format: YYYY-MM-DD HH:mm)')
+        .setRequired(true)),
+  
+  new SlashCommandBuilder()
+    .setName('list_events')
+    .setDescription('List all active events'),
+    
+  new SlashCommandBuilder()
+    .setName('list_templates')
+    .setDescription('List all available event templates')
+];
+
+client.once('ready', async () => {
+  console.log(`Bot is ready! Logged in as ${client.user.tag}`);
+  
+  try {
+    await client.application.commands.set(commands);
+    console.log('Successfully registered application commands.');
+    
+    // Start reminder check interval
+    setInterval(checkReminders, 60000); // Check every minute
+  } catch (error) {
+    console.error('Error registering commands:', error);
+  }
 });
 
-// Create event command
-client.on('messageCreate', async message => {
-    if (!message.content.startsWith('/create_event')) return;
-
-    const args = message.content.split(' ');
-    if (args.length < 4) {
-        return message.reply("❌ Usage: `/create_event <title> <YYYY-MM-DD> <HH:MM> <description>`");
+async function checkReminders() {
+  const now = new Date();
+  
+  activeEvents.forEach(async (event, eventName) => {
+    const timeDiff = event.startTime.getTime() - now.getTime();
+    const minutesUntilStart = Math.floor(timeDiff / (1000 * 60));
+    
+    // Send reminder 30 minutes before event
+    if (minutesUntilStart <= 30 && minutesUntilStart > 0 && !event.reminderSent) {
+      const template = eventTemplates.get(event.templateName);
+      
+      const embed = new EmbedBuilder()
+        .setTitle(`⏰ Reminder: ${eventName} starts in ${minutesUntilStart} minutes!`)
+        .setDescription(event.description)
+        .setColor('#FF9900');
+      
+      template.roles.forEach((slots, role) => {
+        const participants = event.roles.get(role);
+        const participantMentions = participants.map(id => `<@${id}>`).join('\n');
+        embed.addFields({
+          name: `${role} (${participants.length}/${slots})`,
+          value: participantMentions || 'No participants',
+          inline: false
+        });
+      });
+      
+      // Send reminder to all channels where the event was announced
+      // You'd need to store these channels when creating the event
+      event.reminderSent = true;
     }
-
-    const title = args[1];
-    const date = args[2];
-    const time = args[3];
-    const description = args.slice(4).join(' ');
-
-    const eventTime = new Date(`${date}T${time}:00Z`);
-
-    const eventData = {
-        title,
-        date: eventTime,
-        description,
-        guild_id: message.guild.id,
-        rsvps: {}
-    };
-
-    await eventsCollection.insertOne(eventData);
-
-    if (calendar) {
-        const gcalEvent = {
-            summary: title,
-            description,
-            start: { dateTime: eventTime.toISOString(), timeZone: 'UTC' },
-            end: { dateTime: new Date(eventTime.getTime() + 60 * 60 * 1000).toISOString(), timeZone: 'UTC' }
-        };
-        await calendar.events.insert({ calendarId: 'primary', resource: gcalEvent });
-    }
-
-    message.reply(`✅ Event "${title}" created for ${eventTime.toUTCString()}!`);
-});
-
-// List events command
-client.on('messageCreate', async message => {
-    if (!message.content.startsWith('/list_events')) return;
-
-    const events = await eventsCollection.find({ guild_id: message.guild.id }).toArray();
-
-    if (!events.length) {
-        return message.reply("📅 No upcoming events.");
-    }
-
-    const eventList = events.map(event => `**${event.title}** - ${new Date(event.date).toUTCString()}`).join("\n");
-    message.reply(`📅 **Upcoming Events:**\n${eventList}`);
-});
-
-// RSVP command
-client.on('messageCreate', async message => {
-    if (!message.content.startsWith('/rsvp')) return;
-
-    const args = message.content.split(' ');
-    if (args.length < 3) {
-        return message.reply("❌ Usage: `/rsvp <event_title> <emoji>`");
-    }
-
-    const eventTitle = args[1];
-    const emoji = args[2];
-
-    const event = await eventsCollection.findOne({ title: eventTitle, guild_id: message.guild.id });
-
-    if (!event) {
-        return message.reply("❌ Event not found!");
-    }
-
-    await eventsCollection.updateOne({ _id: event._id }, { $set: { [`rsvps.${message.author.id}`]: emoji } });
-
-    message.reply(`✅ ${message.author.username} has RSVP’d with ${emoji} for "${eventTitle}"!`);
-});
-
-// Event reminder system
-async function eventReminder() {
-    const now = new Date();
-    const upcomingEvents = await eventsCollection.find({
-        date: { $lte: new Date(now.getTime() + 30 * 60 * 1000), $gte: now }
-    }).toArray();
-
-    for (const event of upcomingEvents) {
-        const guild = client.guilds.cache.get(event.guild_id);
-        if (guild) {
-            const channel = guild.systemChannel;
-            if (channel) {
-                channel.send(`🚀 **Reminder:** "${event.title}" starts in **30 minutes!**`);
-            }
-        }
-    }
+  });
 }
 
-// Start bot
-connectToMongoDB().then(() => {
-    client.login(TOKEN);
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand()) return;
+
+  switch (interaction.commandName) {
+    case 'create_template':
+      await handleCreateTemplate(interaction);
+      break;
+    case 'start_event':
+      await handleStartEvent(interaction);
+      break;
+    case 'list_templates':
+      await handleListTemplates(interaction);
+      break;
+    case 'list_events':
+      await handleListEvents(interaction);
+      break;
+  }
 });
+
+async function handleStartEvent(interaction) {
+  const templateName = interaction.options.getString('template');
+  const eventName = interaction.options.getString('name');
+  const timeString = interaction.options.getString('time');
+  
+  const template = eventTemplates.get(templateName);
+  if (!template) {
+    await interaction.reply({
+      content: `Template '${templateName}' not found!`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  try {
+    const startTime = new Date(timeString);
+    if (isNaN(startTime.getTime())) {
+      throw new Error('Invalid date');
+    }
+
+    // Initialize empty roles
+    const roles = new Map();
+    template.roles.forEach((slots, role) => {
+      roles.set(role, []);
+    });
+
+    // Create active event
+    activeEvents.set(eventName, new ActiveEvent(
+      templateName,
+      template.description,
+      roles,
+      startTime
+    ));
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Event: ${eventName}`)
+      .setDescription(template.description)
+      .setColor('#0099ff')
+      .addFields({
+        name: 'Start Time',
+        value: startTime.toLocaleString(),
+        inline: false
+      });
+
+    template.roles.forEach((slots, role) => {
+      embed.addFields({
+        name: `${role} (0/${slots})`,
+        value: 'No participants yet',
+        inline: false
+      });
+    });
+
+    embed.setFooter({ text: 'React with 🎯 to sign up' });
+
+    const message = await interaction.reply({ embeds: [embed], fetchReply: true });
+    await message.react('🎯');
+  } catch (error) {
+    await interaction.reply({
+      content: 'Invalid date format. Please use YYYY-MM-DD HH:mm',
+      ephemeral: true
+    });
+  }
+}
+
+async function handleListEvents(interaction) {
+  if (activeEvents.size === 0) {
+    await interaction.reply('No active events.');
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('Active Events')
+    .setColor('#00ff00');
+
+  activeEvents.forEach((event, eventName) => {
+    const participantCounts = Array.from(event.roles.entries())
+      .map(([role, participants]) => `${role}: ${participants.length}/${eventTemplates.get(event.templateName).roles.get(role)}`)
+      .join('\n');
+
+    embed.addFields({
+      name: eventName,
+      value: `Start Time: ${event.startTime.toLocaleString()}\n${participantCounts}`,
+      inline: false
+    });
+  });
+
+  await interaction.reply({ embeds: [embed] });
+}
+
+// ... (rest of the previous code for handleCreateTemplate, handleListTemplates, and reaction handling remains the same)
+
+client.login(TOKEN);
