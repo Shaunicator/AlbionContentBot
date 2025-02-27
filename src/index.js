@@ -12,6 +12,8 @@ const client = new Client({
   ]
 });
 
+const port = process.env.PORT || 3000;
+
 client.commands = new Collection();
 const foldersPath = path.join(__dirname, 'commands');
 //console.log("Folders Path: " + foldersPath);
