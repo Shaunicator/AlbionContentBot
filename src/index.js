@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
+var http = require('http');
 
 const { Client, GatewayIntentBits, Collection, Events } = require('discord.js');
 const client = new Client({
@@ -57,31 +58,11 @@ client.on(Events.InteractionCreate, async interaction => {
     }
   }
 });
-//const activeEvents = new Map();
 
-  // Command registration
-  /*
-  const commands = [
-    
-    new SlashCommandBuilder()
-      .setName('create_template')
-      .setDescription('Create a new event template'),
-    
-    new SlashCommandBuilder()
-      .setName('create_event')
-      .setDescription('Create a new event from a template'),
-      
-    new SlashCommandBuilder()
-      .setName('list_templates')
-      .setDescription('List all available event templates'),
-      
-    new SlashCommandBuilder()
-      .setName('list_events')
-      .setDescription('List all active events')
-     
-  ];
-  */
-
+http.createServer(function (req, res) {
+  res.write('Hello World!'); //write a response to the client
+  res.end(); //end the response
+}).listen(8080);
   client.once('ready', async () => {
     console.log(`Bot is ready! Logged in as ${client.user.tag}`);
     
