@@ -26,22 +26,22 @@ module.exports = {
 			)),
 	async execute(interaction) {
 		let date = new Date();
-			if(showLogs)console.log("Date: " + hours);
-		let showLogs = process.env.showConsoleLogs;
+			console.log("Date: " + hours);
 		const suffix = interaction.options.getString('format') ?? 'R';
+			console.log("Suffix: " + suffix);
 		const hours = interaction.options.getInteger('hours');
-			if(showLogs)console.log("Hours entered: " + hours);
+			console.log("Hours entered: " + hours);
 		const minutes = interaction.options.getInteger('minutes');
-			if(showLogs)console.log("Minutes entered: " + minutes);
+			console.log("Minutes entered: " + minutes);
 		let _hours = date.getHours() + parseInt(hours);
-			if(showLogs)console.log("Hours added: " + _hours);
+			iconsole.log("Hours added: " + _hours);
 		let _minutes = date.getMinutes() + parseInt(minutes);
-			if(showLogs)console.log("Minutes added: " + _minutes);
+			console.log("Minutes added: " + _minutes);
 		date.setHours(_hours);
 		date.setMinutes(_minutes);
-			if(showLogs)console.log("New Date: " + date);
+			console.log("New Date: " + date);
 		let timestamp = Math.floor(date.getTime() / 1000);
-			if(showLogs)console.log("Timestamp: " + timestamp);
+			console.log("Timestamp: " + timestamp);
 		// interaction.user is the object representing the User who ran the command
 		// interaction.member is the GuildMember object, which represents the user in the specific guild
 		await interaction.reply({content:`Copy/Paste this --->  <t:${timestamp}:${suffix}>`, ephemeral: true});
