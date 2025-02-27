@@ -44,6 +44,6 @@ module.exports = {
 			console.log("Timestamp: " + timestamp);
 		// interaction.user is the object representing the User who ran the command
 		// interaction.member is the GuildMember object, which represents the user in the specific guild
-		await interaction.reply({content:`Copy/Paste this --->  <t:${timestamp}:${suffix}>`, ephemeral: true});
+		await interaction.reply({content:`Copy this ➡️ t:${timestamp}:${suffix}, paste in between < >`, ephemeral: true});
 	},
 };
