@@ -14,9 +14,9 @@ const client = new Client({
 
 client.commands = new Collection();
 const foldersPath = path.join(__dirname, 'commands');
-console.log("Folders Path: " + foldersPath);
+//console.log("Folders Path: " + foldersPath);
 const commandFolders = fs.readdirSync(foldersPath);
-console.log("Command Folders: " + commandFolders);
+//console.log("Command Folders: " + commandFolders);
 
 for (const folder of commandFolders) {
 	const commandsPath = path.join(foldersPath, folder);
@@ -32,12 +32,10 @@ for (const folder of commandFolders) {
 		}
 	}
 }
-for (const command of client.commands.values()){
-  console.log(command.data.name);
-}
+
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
-	console.log(interaction);
+	//console.log(interaction);
 
   const command = interaction.client.commands.get(interaction.commandName);
 
