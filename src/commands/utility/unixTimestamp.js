@@ -26,7 +26,7 @@ module.exports = {
 			)),
 	async execute(interaction) {
 		let date = new Date();
-			console.log("Date: " + hours);
+			console.log("Date: " + date);
 		const suffix = interaction.options.getString('format') ?? 'R';
 			console.log("Suffix: " + suffix);
 		const hours = interaction.options.getInteger('hours');
@@ -34,7 +34,7 @@ module.exports = {
 		const minutes = interaction.options.getInteger('minutes');
 			console.log("Minutes entered: " + minutes);
 		let _hours = date.getHours() + parseInt(hours);
-			iconsole.log("Hours added: " + _hours);
+			console.log("Hours added: " + _hours);
 		let _minutes = date.getMinutes() + parseInt(minutes);
 			console.log("Minutes added: " + _minutes);
 		date.setHours(_hours);
